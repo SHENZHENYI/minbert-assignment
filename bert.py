@@ -11,12 +11,12 @@ class BertSelfAttention(nn.Module):
   def __init__(self, config):
     super().__init__()
 
-    self.num_attention_heads = config.num_attention_heads
-    self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
-    self.all_head_size = self.num_attention_heads * self.attention_head_size
+    self.num_attention_heads = config.num_attention_heads # 12
+    self.attention_head_size = int(config.hidden_size / config.num_attention_heads) # 768/12=64
+    self.all_head_size = self.num_attention_heads * self.attention_head_size # 12*64=768
 
     # initialize the linear transformation layers for key, value, query
-    self.query = nn.Linear(config.hidden_size, self.all_head_size)
+    self.query = nn.Linear(config.hidden_size, self.all_head_size) # (768, 768)
     self.key = nn.Linear(config.hidden_size, self.all_head_size)
     self.value = nn.Linear(config.hidden_size, self.all_head_size)
     # this dropout is applied to normalized attention scores following the original implementation of transformer
@@ -41,13 +41,17 @@ class BertSelfAttention(nn.Module):
     # S[*, i, j, k] represents the (unnormalized)attention score between the j-th and k-th token, given by i-th attention head
     # before normalizing the scores, use the attention mask to mask out the padding token scores
     # Note again: in the attention_mask non-padding tokens with 0 and padding tokens with a large negative number 
-
+    bs, _, seq_len, _ = key.shape
+    scores = torch.einsum('...ij,...jk->...ik', query, key.transpose(2, 3)) / math.sqrt(self.attention_head_size)
+    scores = scores.masked_fill(attention_mask!=0, -10000.)
     # normalize the scores
-
+    normed_scores = F.softmax(scores, dim=-1)
+    normed_scores = self.dropout(normed_scores)
     # multiply the attention scores to the value and get back V' 
-
+    attn_value = torch.einsum('...ij,...jk->...ik', normed_scores, value) 
     # next, we need to concat multi-heads and recover the original shape [bs, seq_len, num_attention_heads * attention_head_size = hidden_size]
-    raise NotImplementedError
+    attn_value = attn_value.transpose(1, 2).contiguous().view(bs, seq_len, self.all_head_size)
+    return attn_value
 
   def forward(self, hidden_states, attention_mask):
     """
@@ -91,8 +95,7 @@ class BertLayer(nn.Module):
     dropout: the dropout to be applied 
     ln_layer: the layer norm to be applied
     """
-    # todo
-    raise NotImplementedError
+    return ln_layer(input+dropout(dense_layer(output)))
 
   def forward(self, hidden_states, attention_mask):
     """
@@ -106,15 +109,16 @@ class BertLayer(nn.Module):
     """
     # todo
     # multi-head attention w/ self.self_attention
-
+    atten_result = self.self_attention(hidden_states, attention_mask)
     # add-norm layer
-
+    atten_result = self.add_norm(hidden_states, atten_result, \
+                self.attention_dense, self.attention_dropout, self.attention_layer_norm)
     # feed forward
-
+    ffn_result = self.interm_af(self.interm_dense(atten_result))
     # another add-norm layer
-
-
-    raise NotImplementedError
+    result = self.add_norm(atten_result, ffn_result, \
+                self.out_dense, self.out_dropout, self.out_layer_norm)
+    return result
 
 
 class BertModel(BertPreTrainedModel):
@@ -154,12 +158,11 @@ class BertModel(BertPreTrainedModel):
 
     # get word embedding from self.word_embedding
     # todo
-    inputs_embeds = None
-
+    inputs_embeds = self.word_embedding(input_ids)
 
     # get position index and position embedding from self.pos_embedding
     pos_ids = self.position_ids[:, :seq_length]
-    pos_embeds = None
+    pos_embeds = self.pos_embedding(pos_ids)
 
     # get token type ids, since we are not consider token type, just a placeholder
     tk_type_ids = torch.zeros(input_shape, dtype=torch.long, device=input_ids.device)
@@ -172,7 +175,7 @@ class BertModel(BertPreTrainedModel):
     embeds = self.embed_layer_norm(embeds)
     embeds = self.embed_dropout(embeds)
 
-    raise NotImplementedError
+    return embeds
 
   def encode(self, hidden_states, attention_mask):
     """
