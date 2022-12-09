@@ -82,7 +82,6 @@ class BertDataset(Dataset):
                 'labels': labels,
                 'sents': sents,
             }
-
         return batched_data
 
 
@@ -197,7 +196,8 @@ def train(args):
 
             optimizer.zero_grad()
             logits = model(b_ids, b_mask)
-            loss = F.nll_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            #loss = F.nll_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = nn.CrossEntropyLoss(reduction='sum')(logits, b_labels.view(-1)) / args.batch_size
 
             loss.backward()
             optimizer.step()

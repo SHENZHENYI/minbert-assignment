@@ -22,8 +22,8 @@ python3 classifier.py --option [pretrain/finetune] --epochs NUM_EPOCHS --lr LR -
 ## Reference accuracies: 
 
 Pretraining for SST:
-Dev Accuracy: 0.391 (0.007)
-Test Accuracy: 0.403 (0.008)
+Dev Accuracy: 0.391 (0.007) 0.398
+Test Accuracy: 0.403 (0.008) 0.411
 
 Mean reference accuracies over 10 random seeds with their standard deviation shown in brackets.
 
