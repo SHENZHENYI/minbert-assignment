@@ -18,6 +18,11 @@ You will then perform sentence classification on ``sst`` dataset and ``cfimdb`` 
 mkdir -p ANDREWID
 
 python3 classifier.py --option [pretrain/finetune] --epochs NUM_EPOCHS --lr LR --train data/sst-train.txt --dev data/sst-dev.txt --test data/sst-test.txt
+
+python3 classifier.py --option finetune --epochs 10 --lr 1e-5 --train data/sst-train.txt --dev data/sst-dev.txt --test data/sst-test.txt --use_gpu
+
+python3 classifier.py --option finetune --epochs 10 --lr 1e-5 --train data/cfimdb-train.txt --dev data/cfimdb-dev.txt --test data/cfimdb-test.txt --use_gpu
+
 ```
 ## Reference accuracies: 
 
@@ -28,12 +33,12 @@ Test Accuracy: 0.403 (0.008) 0.411
 Mean reference accuracies over 10 random seeds with their standard deviation shown in brackets.
 
 Finetuning for SST:
-Dev Accuracy: 0.515 (0.004)
-Test Accuracy: 0.526 (0.008)
+Dev Accuracy: 0.515 (0.004) 0.513
+Test Accuracy: 0.526 (0.008) 0.543
 
 Finetuning for CFIMDB:
-Dev Accuracy: 0.966 (0.007)
-Test Accuracy: -
+Dev Accuracy: 0.966 (0.007) 0.955
+Test Accuracy: - 0.508
 
 ### Submission
 
