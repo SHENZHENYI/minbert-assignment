@@ -12,6 +12,7 @@ from tokenizer import BertTokenizer
 from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
+from mlm_utils import mask_tokens
 
 
 TQDM_DISABLE=True
@@ -40,12 +41,16 @@ class BertSentClassifier(torch.nn.Module):
 
         self.classifier_dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
+        self.lm_layer = nn.Linear(config.hidden_size, self.bert.config.vocab_size)
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, attention_mask, mlm=False):
         # todo
         # the final bert contextualize embedding is the hidden state of [CLS] token (the first token)
-        pooler_output = self.bert(input_ids, attention_mask)['pooler_output']
-        return self.classifier(self.classifier_dropout(pooler_output))
+        if not mlm:
+            pooler_output = self.bert(input_ids, attention_mask)['pooler_output']
+            return self.classifier(self.classifier_dropout(pooler_output))
+        else:
+            return self.lm_layer(self.bert(input_ids, attention_mask)['last_hidden_state'])
 
 # create a custom Dataset Class to be used for the dataloader
 class BertDataset(Dataset):
@@ -73,7 +78,6 @@ class BertDataset(Dataset):
         return token_ids, token_type_ids, attention_mask, labels, sents
 
     def collate_fn(self, all_data):
-
         token_ids, token_type_ids, attention_mask, labels, sents = self.pad_data(all_data)
         batched_data = {
                 'token_ids': token_ids,
@@ -183,6 +187,10 @@ def train(args):
 
     ## run for the specified number of epochs
     for epoch in range(args.epochs):
+        if epoch < 10:
+            mlm = True
+        else:
+            mlm = False
         model.train()
         train_loss = 0
         num_batches = 0
@@ -190,14 +198,24 @@ def train(args):
             b_ids, b_type_ids, b_mask, b_labels, b_sents = batch['token_ids'], batch['token_type_ids'], batch[
                 'attention_mask'], batch['labels'], batch['sents']
 
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
-            b_labels = b_labels.to(device)
+            if mlm:
+                masked_ids, masked_labels = mask_tokens(b_ids, train_dataset.tokenizer, mlm_probability=0.15)
+                b_ids = masked_ids.to(device)
+                b_mask = b_mask.to(device)
+                b_labels = masked_labels.to(device)            
+            else:
+                b_ids = b_ids.to(device)
+                b_mask = b_mask.to(device)
+                b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model(b_ids, b_mask)
+            logits = model(b_ids, b_mask, mlm)
+            print('b_ids', b_ids.shape, logits.shape)
             #loss = F.nll_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-            loss = nn.CrossEntropyLoss(reduction='sum')(logits, b_labels.view(-1)) / args.batch_size
+            if mlm:
+                loss = nn.CrossEntropyLoss(reduction='sum')(logits.view(-1, model.bert.config.vocab_size), b_labels.view(-1)) / args.batch_size
+            else:
+                loss = nn.CrossEntropyLoss(reduction='sum')(logits, b_labels.view(-1)) / args.batch_size
 
             loss.backward()
             optimizer.step()

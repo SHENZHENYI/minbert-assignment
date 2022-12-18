@@ -51,6 +51,7 @@ class BertPreTrainedModel(nn.Module):
 
     # Load config if we don't provide a configuration
     if not isinstance(config, PretrainedConfig):
+      print('pretrained_config', config)
       config_path = config if config is not None else pretrained_model_name_or_path
       config, model_kwargs = cls.config_class.from_pretrained(
         config_path,
