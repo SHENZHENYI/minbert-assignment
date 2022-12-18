@@ -40,6 +40,9 @@ Finetuning for CFIMDB:
 Dev Accuracy: 0.966 (0.007) 0.955
 Test Accuracy: - 0.508
 
+after mlm:
+10epochs: dev=0.947, test=0.545
+
 ### Submission
 
 We are asking you to submit in two ways:

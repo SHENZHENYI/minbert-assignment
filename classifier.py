@@ -178,6 +178,9 @@ def train(args):
 
     # initialize the Senetence Classification Model
     model = BertSentClassifier(config)
+    if not args.mlm:
+        saved = torch.load(args.mlm_save_path)
+        model.load_state_dict(saved['model'])
     model = model.to(device)
 
     lr = args.lr
@@ -198,7 +201,7 @@ def train(args):
             b_ids, b_type_ids, b_mask, b_labels, b_sents = batch['token_ids'], batch['token_type_ids'], batch[
                 'attention_mask'], batch['labels'], batch['sents']
 
-            if mlm:
+            if args.mlm:
                 masked_ids, masked_labels = mask_tokens(b_ids, train_dataset.tokenizer, mlm_probability=0.15)
                 b_ids = masked_ids.to(device)
                 b_mask = b_mask.to(device)
@@ -210,9 +213,8 @@ def train(args):
 
             optimizer.zero_grad()
             logits = model(b_ids, b_mask, mlm)
-            print('b_ids', b_ids.shape, logits.shape)
             #loss = F.nll_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-            if mlm:
+            if args.mlm:
                 loss = nn.CrossEntropyLoss(reduction='sum')(logits.view(-1, model.bert.config.vocab_size), b_labels.view(-1)) / args.batch_size
             else:
                 loss = nn.CrossEntropyLoss(reduction='sum')(logits, b_labels.view(-1)) / args.batch_size
@@ -228,14 +230,18 @@ def train(args):
         train_acc, train_f1, *_ = model_eval(train_dataloader, model, device)
         dev_acc, dev_f1, *_ = model_eval(dev_dataloader, model, device)
 
-        if dev_acc > best_dev_acc:
+        if not args.mlm and dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
             save_model(model, optimizer, args, config, args.filepath)
+        else:
+            save_model(model, optimizer, args, config, args.mlm_save_path)
 
         print(f"epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
 
 def test(args):
+    if args.mlm:
+        return
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
         saved = torch.load(args.filepath)
@@ -276,6 +282,8 @@ def get_args():
                         help='pretrain: the BERT parameters are frozen; finetune: BERT parameters are updated',
                         choices=('pretrain', 'finetune'), default="pretrain")
     parser.add_argument("--use_gpu", action='store_true')
+    parser.add_argument("--mlm", action='store_true')
+    parser.add_argument("--mlm_save_path", type=str)
     parser.add_argument("--dev_out", type=str, default="cfimdb-dev-output.txt")
     parser.add_argument("--test_out", type=str, default="cfimdb-test-output.txt")
 
