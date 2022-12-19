@@ -26,6 +26,18 @@ def seed_everything(seed=11711):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+class MeanPooling(nn.Module):
+    def __init__(self):
+        super(MeanPooling, self).__init__()
+        
+    def forward(self, last_hidden_state, attention_mask):
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+        sum_mask = input_mask_expanded.sum(1)
+        sum_mask = torch.clamp(sum_mask, min=1e-9)
+        mean_embeddings = sum_embeddings / sum_mask
+        return mean_embeddings
+
 class BertSentClassifier(torch.nn.Module):
     def __init__(self, config):
         super(BertSentClassifier, self).__init__()
@@ -41,14 +53,17 @@ class BertSentClassifier(torch.nn.Module):
 
         self.classifier_dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
+        self.mean_pool = MeanPooling()
         self.lm_layer = nn.Linear(config.hidden_size, self.bert.config.vocab_size)
 
     def forward(self, input_ids, attention_mask, mlm=False):
         # todo
         # the final bert contextualize embedding is the hidden state of [CLS] token (the first token)
         if not mlm:
-            pooler_output = self.bert(input_ids, attention_mask)['pooler_output']
-            return self.classifier(self.classifier_dropout(pooler_output))
+            #pooler_output = self.bert(input_ids, attention_mask)['pooler_output']
+            #return self.classifier(self.classifier_dropout(pooler_output))
+            pooler_output = self.bert(input_ids, attention_mask)['last_hidden_state']
+            return self.classifier(self.mean_pool(pooler_output, attention_mask))
         else:
             return self.lm_layer(self.bert(input_ids, attention_mask)['last_hidden_state'])
 
@@ -181,6 +196,7 @@ def train(args):
     if not args.mlm:
         saved = torch.load(args.mlm_save_path)
         model.load_state_dict(saved['model'])
+        print(f'model loads weights from {args.mlm_save_path}')
     model = model.to(device)
 
     lr = args.lr
@@ -212,7 +228,7 @@ def train(args):
                 b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model(b_ids, b_mask, mlm)
+            logits = model(b_ids, b_mask, args.mlm)
             #loss = F.nll_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
             if args.mlm:
                 loss = nn.CrossEntropyLoss(reduction='sum')(logits.view(-1, model.bert.config.vocab_size), b_labels.view(-1)) / args.batch_size
@@ -230,9 +246,11 @@ def train(args):
         train_acc, train_f1, *_ = model_eval(train_dataloader, model, device)
         dev_acc, dev_f1, *_ = model_eval(dev_dataloader, model, device)
 
-        if not args.mlm and dev_acc > best_dev_acc:
-            best_dev_acc = dev_acc
-            save_model(model, optimizer, args, config, args.filepath)
+        if not args.mlm:
+            if dev_acc > best_dev_acc:
+                best_dev_acc = dev_acc
+                save_model(model, optimizer, args, config, f'best_{args.filepath}')
+            save_model(model, optimizer, args, config, f'last_{args.filepath}')
         else:
             save_model(model, optimizer, args, config, args.mlm_save_path)
 
@@ -244,7 +262,7 @@ def test(args):
         return
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-        saved = torch.load(args.filepath)
+        saved = torch.load(f'last_{args.filepath}')
         config = saved['model_config']
         model = BertSentClassifier(config)
         model.load_state_dict(saved['model'])
